@@ -12,7 +12,7 @@
 # Section 1 is just exploratory, then the values were manually entered into an excel document. The starting params for 
 # regmixEM varied GREATLY between each species/year. Sometimes a "good" fit could be found by setting sigma/beta/lambda
 # for each year. There was no consistent way to produce results, especially to constrain beta (growth), to positive values.
-# A good fit was determined if growth was positve, and visually to see if it bisected the cloud. I assumed a linear growth 
+# A good fit was determined if growth was positive, and visually to see if it bisected the cloud. I assumed a linear growth 
 # trend over the ~65 day growing season.
 
 # Section 2 applied the excel doc of age class length and growth, then corrected for any obvious errors. If there 

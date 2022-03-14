@@ -16,7 +16,7 @@
 # The starting params for regmixEM from package mixtools varied GREATLY between species/year. 
 # Sometimes a "good" fit could be found by setting sigma/beta/lambda for each year. 
 # There was no consistent way to produce results, especially to constrain beta (growth), to positive values.
-# A good fit was determined if growth was positve, and visually to see if it bisected the cloud. I assumed a linear growth 
+# A good fit was determined if growth was positive, and visually to see if it bisected the cloud. I assumed a linear growth 
 # trend over the ~65 day growing season.
 
 # This script applies the Excel doc of age class length and growth, then corrects for any obvious errors. If there 
@@ -24,8 +24,6 @@
 # between years, could use that info to inform judgment), as well as visual assessment
 
 library(tidyverse)
-#library(tidyr)
-#library(tibble)
 library(lubridate)
 library(readxl)
 library(here)
@@ -35,30 +33,35 @@ library(here)
 ## IMPORT LENGTH, CATCH DATA ##
 
 # Read in the length, catch, and environmental data, plus species lookup table
-
-
-
-
 indivfish.bdwfages <- read_csv("data/indivfish_bdwfages.csv", guess_max = 70000) %>%
   mutate(Side = as.factor(Side),
          StartDateTime = as.POSIXct(StartDateTime, tz="America/Anchorage")-hours(8),
          EndDateTime = as.POSIXct(EndDateTime, tz="America/Anchorage")-hours(8)) 
 # Needed to correct for the time being 8 hrs off (UTC issue)
 
-
-bdwflargelength <- read_csv("data/bdwflargelength.csv")
+indivfish.arcsages <- read_csv("data/indivfish_arcsages.csv", guess_max = 70000) %>%
+  mutate(Side = as.factor(Side),
+         StartDateTime = as.POSIXct(StartDateTime, tz="America/Anchorage")-hours(8),
+         EndDateTime = as.POSIXct(EndDateTime, tz="America/Anchorage")-hours(8)) 
+# Needed to correct for the time being 8 hrs off (UTC issue)
 
 
 unmeasuredfish.bdwf <- read_csv("data/unmeasuredfish_bdwf.csv")
+unmeasuredfish.arcs <- read_csv("data/unmeasuredfish_arcs.csv")
 
+
+bdwflargelength <- read_csv("data/bdwflargelength.csv")
+arcslargelength <- read_csv("data/arcslargelength.csv")
 
 
 bdwflargecatch <- read_csv("data/bdwflargecatch.csv")
+arcslargecatch <- read_csv("data/arcslargecatch.csv")
 
 
+env_allyears <- read_csv("data/env_allyears.csv") %>%
+  mutate(Station = as.factor(Station))
 
-
-
+effort <- read_csv("data/effort.csv")
 
 
 
@@ -264,6 +267,7 @@ allcatch.bdwfages <- allcatch.bdwfages %>% filter(!is.na(age.put) | LG == 3, tot
 ##################################################
 
 arcsbreaks <- read_excel(here::here("data/lengthtoage.xlsx"), sheet = "arcs", col_types = "numeric")
+arcsbreaks <- as.data.frame(arcsbreaks)   # March 2022 update: must be df to overwrite vals
 arcsbreaks <- arcsbreaks[,-c(1,9,15,21,27)]
 arcsbreaks[1,c(8, 13, 18)] <- c(4, 30, 0.7) # 2001 age0 
 arcsbreaks[2,c(8, 13, 18)] <- c(5, 30, 0.7) # 2002 age0. no age 0 but can't have blank line
@@ -411,7 +415,6 @@ for(j in c(1:18)){
 }
 
 # Note! indivfish.arcsages is only for LG1 & 2!
-indivfish.arcsages <- pru_lengths %>% filter(Length < 250, Species == "ARCS")
 indivfish.arcsages <- left_join(indivfish.arcsages, allbreaks.arcs, by = c("Year" = "year", "day.of.year" = "doy"))
 indivfish.arcsages$age.put <- if_else(indivfish.arcsages$Length <= indivfish.arcsages$age01cut, "age0",  # Putative age
                                if_else(indivfish.arcsages$Length <= indivfish.arcsages$age12cut, "age1", 
@@ -427,25 +430,15 @@ agesummary_arcs <- indivfish.arcsages %>% group_by(Year, age.put) %>% summarise(
 agesummary_arcs <- spread(agesummary_arcs, age.put, total)
 agesummary_arcs$age0[is.na(agesummary_arcs$age0)] <- 0
 
+
+
+# Note! only measured fish, not totals
 agesummary_arcs <- agesummary_arcs %>% 
-  add_column(age3plusLG3=(pru_lengths %>% filter(Length >= 250, Species == "ARCS") %>% 
-                          group_by(Year) %>% summarise(age3plusLG3=sum(totcount)))$age3plusLG3)
+  add_column(age3plusLG3=arcslargelength$age3plusLG3)
 
 
 ################
 ## convert these to total number of ages per LengthGroup
-
-unmeasuredfish.arcs <- allcatch %>% filter(Species == "ARCS", LG == 1 | LG == 2) %>% group_by(Year, EndDate, Net, LG) %>% 
-  summarise(totcount=sum(totcount, na.rm = TRUE)) %>% 
-  left_join(all.len %>%
-              mutate(Net = paste0(Station, Side)) %>%
-              filter( Species == "ARCS") %>% group_by(Year, EndDate, Net, Group) %>% 
-              summarise(Lengthcount=sum(totcount, na.rm = TRUE)), 
-            by = c("Year" = "Year", "EndDate" = "EndDate", "Net" = "Net", "LG" = "Group")) %>%
-  replace(., is.na(.), 0) %>%
-  mutate(unmeasured = totcount - Lengthcount) 
-
-
 
 allcatch.arcsages <- unmeasuredfish.arcs %>% left_join(indivfish.arcsages %>%
                                                          mutate(Net = paste0(Station, Side)) %>%
@@ -454,14 +447,14 @@ allcatch.arcsages <- unmeasuredfish.arcs %>% left_join(indivfish.arcsages %>%
                                                          summarise(agecount=sum(totcount, na.rm = TRUE)), 
                                                        by = c("Year" = "Year", "EndDate" = "EndDate", "Net" = "Net", "LG" = "Group")) %>%
   mutate(unleng_ages = round(unmeasured*(agecount / Lengthcount)),
-         totalages = agecount + unleng_ages,
-         Species = "ARCS") %>% 
+       totalages = agecount + unleng_ages,
+       Species = "ARCS") %>%
   dplyr::select(Species, everything()) %>%
   filter(totcount > 0) %>% #Next, add the LG3 fish into the df
-  full_join(allcatch %>% filter(Species == "ARCS", LG == 3, totcount > 0) %>% group_by(Year, EndDate, Net, LG) %>% 
-            summarise(totcount=sum(totcount, na.rm = TRUE)) %>% 
-            mutate(Species = "ARCS", 
-                   totalages = totcount)) 
+  full_join(arcslargecatch) %>%
+  mutate(totalages = ifelse(LG == 3, totcount, totalages),
+         age.put = ifelse(LG == 3, "age3plus", age.put))
+
 
 
 # There are some rows with NA ages. These are from days where there were totals but no lengths 
@@ -541,5 +534,61 @@ addweeknum <- function(dataframename){
                                                                           ifelse(day.of.year > 236, 9, NA))))))))))
   
 }
+
+
+
+
+
+
+theme_crisp <- function(base_size = 12, base_family = "Arial", rotate_text=FALSE, rmborder=FALSE) {
+  # This is based heavily on Sean Anderson's theme_sleek from ggsidekick
+  # https://github.com/seananderson/ggsidekick
+  # Use that package if you can! 
+  # I am only re-making my own to remove non-CRAN dependencies
+  
+  require(extrafont)  # Need package extrafont for fonts. See pkg docs
+  
+  half_line <- base_size/2
+  theme_light(base_size = base_size, base_family = base_family) +
+    theme(
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank(),
+      axis.ticks.length = unit(half_line / 2.2, "pt"),
+      strip.background = element_rect(fill = NA, color = NA),
+      strip.text.x = element_text(color = "gray30"),
+      strip.text.y = element_text(color = "gray30"),
+      axis.text = element_text(color = "gray30"),
+      axis.title = element_text(color = "gray30"),
+      legend.title = element_text(color = "gray30", size = rel(0.9)),
+      panel.border = element_rect(fill = NA, color = "gray70", size = 1),
+      legend.key.size = unit(0.9, "lines"),
+      legend.text = element_text(size = rel(0.7), color = "gray30"),
+      legend.key = element_rect(color = NA, fill = NA),
+      legend.background = element_rect(color = NA, fill = NA),
+      plot.title = element_text(color = "gray30", size = rel(1)),
+      plot.subtitle = element_text(color = "gray30", size = rel(.85))
+    ) +
+    {if(rmborder==TRUE){
+      theme(axis.line = element_line(size = 0.5, color = "gray70"),
+            panel.border = element_blank())
+    }
+      else{
+        theme()
+      }} + # If modifying in future, need {} around entire if statement
+    if(rotate_text==TRUE){
+      theme(axis.text.x = element_text(angle = 45, vjust=1, hjust=1))
+    } else{
+      theme(axis.text.x = element_text(angle = 0))
+    }
+}
+
+
+
+
+
+
+
+
+
 
 
